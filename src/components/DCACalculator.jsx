@@ -376,7 +376,7 @@ export default function DCACalculator() {
             <div className="sec-divider"></div>
 
             <div className="input-cell">
-                <label>Initial Decline (%)</label>
+                <label>Initial Decline (%)</label>https://github.com/shekhar7x/zecotools.git
                 <input type="number" value={initialDecline} min="0" step="1" onChange={e => setInitialDecline(e.target.value)} />
             </div>
             <div className="input-cell">
@@ -483,9 +483,12 @@ export default function DCACalculator() {
                               let content = null;
                               switch(c.key) {
                                   case 'txNum': content = r.txNum; break;
-                                  case 'price': 
+                                  case 'price':
                                       const priceDrop = (r.priceINR - targetPriceINR) / targetPriceINR * 100;
-                                      content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.priceINR} /></>;
+                                      const isLastRow = r.txNum === rows[rows.length - 1].txNum;
+                                      const prevPriceINR = rows.length > 1 && isLastRow ? rows[rows.length - 2].priceINR : null;
+                                      const adjustment = prevPriceINR !== null ? toPrimary(prevPriceINR - r.priceINR) : null;
+                                      content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span>{adjustment !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>{curSym()}{adjustment.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} drop</span>}<FxHint inr={r.priceINR} /></>;
                                       break;
                                   case 'txAmount':
                                       content = <>{fmt(toPrimary(r.txAmountINR))}<FxHint inr={r.txAmountINR} /></>;
