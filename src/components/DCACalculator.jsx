@@ -404,7 +404,7 @@ export default function DCACalculator() {
             <div className="input-cell">
                 <label style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
                     Target Price (<span className="cur-sym">{curSym()}</span>)
-                    <button onClick={() => setTargetPrice(startPrice)} title="Set to start price" style={{fontSize:'11px', padding:'0 3px', border:'none', background:'none', color:'#bbb', cursor:'pointer', lineHeight:1}}>⇡</button>
+                    <button onClick={() => setTargetPrice(startPrice)} title="Set to start price" style={{fontSize:'11px', padding:'0 3px', border:'none', background:'none', color:'#bbb', cursor:'pointer', lineHeight:1}}>↻</button>
                 </label>
                 <input type="number" value={targetPrice} min="0" step="1" onChange={e => setTargetPrice(e.target.value)} />
                 <RateHints valStr={targetPrice} />
@@ -436,13 +436,13 @@ export default function DCACalculator() {
           <div className="table-header">
             <div className="table-title">Transaction Details</div>
             <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
-              <label style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', color:'#aaa', cursor:'pointer', userSelect:'none'}}>
-                <input type="checkbox" checked={fxEnabled} onChange={e => setFxEnabled(e.target.checked)} style={{width:'12px', height:'12px', accentColor:'#b07d00'}} />
-                <span style={{fontSize:'9px'}}>Show FX</span>
+              <label style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'12px', color:'#666', cursor:'pointer', userSelect:'none'}}>
+                <input type="checkbox" checked={fxEnabled} onChange={e => setFxEnabled(e.target.checked)} style={{width:'13px', height:'13px', accentColor:'#bb7d00'}} />
+                <span style={{fontSize:'10px', color:'#666'}}>Show FX</span>
               </label>
-              <button className="col-btn" onClick={copyForAI} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>{copyLabel}</button>
+              <button className="col-btn" onClick={copyForAI} title="Copy all data for AI" style={{fontSize:'15px', padding:'4px 7px'}}>{copyLabel}</button>
               <div style={{position:'relative'}}>
-                <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)}>⚙ Columns</button>
+                <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)} style={{fontSize:'11px'}}>⚙ Columns</button>
                 <div className={`col-panel ${isColPanelOpen ? 'open' : ''}`} id="colPanel">
                   <div className="col-panel-title">Show & reorder</div>
                   <div id="colItems">
