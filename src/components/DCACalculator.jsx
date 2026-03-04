@@ -485,20 +485,23 @@ export default function DCACalculator() {
                                   case 'txNum': content = r.txNum; break;
                                   case 'price':
                                       const priceDrop = (r.priceINR - targetPriceINR) / targetPriceINR * 100;
-                                      const isLastRow = r.txNum === rows[rows.length - 1].txNum;
-                                      const prevPriceINR = rows.length > 1 && isLastRow ? rows[rows.length - 2].priceINR : null;
-                                      const adjustment = prevPriceINR !== null ? toPrimary(prevPriceINR - r.priceINR) : null;
-                                      content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span>{adjustment !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>{curSym()}{adjustment.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} drop</span>}<FxHint inr={r.priceINR} /></>;
+                                      content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.priceINR} /></>;
                                       break;
                                   case 'txAmount':
-                                      content = <>{fmt(toPrimary(r.txAmountINR))}<FxHint inr={r.txAmountINR} /></>;
+                                      const isLastRowTx = r.txNum === rows[rows.length - 1].txNum;
+                                      const prevRowTx = rows.length > 1 && isLastRowTx ? rows[rows.length - 2] : null;
+                                      const adjustmentTx = prevRowTx !== null ? toPrimary(r.txAmountINR - prevRowTx.txAmountINR) : null;
+                                      content = <>{fmt(toPrimary(r.txAmountINR))}{adjustmentTx !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>-{curSym()}{adjustmentTx.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} adjusted</span>}<FxHint inr={r.txAmountINR} /></>;
                                       break;
                                   case 'avgCost':
                                       const avgDrop = (r.avgCostINR - targetPriceINR) / targetPriceINR * 100;
                                       content = <>{fmt(toPrimary(r.avgCostINR))}<span className="pct-hint">{avgDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.avgCostINR} /></>;
                                       break;
                                   case 'totalCapital':
-                                      content = <>{fmt(toPrimary(r.totalCapitalINR))}<FxHint inr={r.totalCapitalINR} /></>;
+                                      const isLastRowCap = r.txNum === rows[rows.length - 1].txNum;
+                                      const prevRowCap = rows.length > 1 && isLastRowCap ? rows[rows.length - 2] : null;
+                                      const adjustmentCap = prevRowCap !== null ? toPrimary(r.totalCapitalINR - prevRowCap.totalCapitalINR) : null;
+                                      content = <>{fmt(toPrimary(r.totalCapitalINR))}{adjustmentCap !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>-{curSym()}{adjustmentCap.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} adjusted</span>}<FxHint inr={r.totalCapitalINR} /></>;
                                       break;
                                   case 'pnlCurrent':
                                       const pctC = r.pnlCurrentINR / r.totalCapitalINR * 100;
