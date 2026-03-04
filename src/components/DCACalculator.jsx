@@ -1,251 +1,136 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './DCACalculator.css';
 
-// ── Helper Functions ──
+const DEFAULT_COLS = [
+  { key: 'txNum',        label: '#',                  visible: true  },
+  { key: 'date',         label: 'Day',                visible: true  },
+  { key: 'price',        label: 'Price',              visible: true,  currency: true },
+  { key: 'txAmount',     label: 'Invested This Tx',   visible: true,  currency: true },
+  { key: 'txUnits',      label: 'Units This Tx',      visible: true  },
+  { key: 'avgCost',      label: 'Avg Cost/Unit',      visible: true,  currency: true },
+  { key: 'totalCapital', label: 'Total Invested',     visible: true,  currency: true },
+  { key: 'pnlCurrent',   label: 'P&L at Current',    visible: true,  currency: true },
+  { key: 'pnlPrev',      label: 'P&L at Prev Stage', visible: true,  currency: true },
+  { key: 'profit',       label: 'Profit @ Target',    visible: true,  currency: true },
+];
 
-const formatPct = (n) => {
-  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%';
-};
+export default function DCACalculator() {
+  // ── State: Inputs ──
+  const [primaryCurrency, setPrimaryCurrency] = useState(() => localStorage.getItem('dca_primaryCurrency') || 'INR');
+  const [startPrice, setStartPrice] = useState(() => localStorage.getItem('dca_startPrice') || '100');
+  const [totalInvestment, setTotalInvestment] = useState(() => localStorage.getItem('dca_totalInvestment') || '100000');
+  const [initialInvestAmt, setInitialInvestAmt] = useState(() => localStorage.getItem('dca_initialInvestAmt') || '10000');
+  const [txChangePct, setTxChangePct] = useState(() => localStorage.getItem('dca_txChangePct') || '50');
+  const [initialDecline, setInitialDecline] = useState(() => localStorage.getItem('dca_initialDecline') || '5');
+  const [divisor, setDivisor] = useState(() => localStorage.getItem('dca_divisor') || '2');
+  const [declineBasis, setDeclineBasis] = useState(() => localStorage.getItem('dca_declineBasis') || 'relative');
+  const [gapDays, setGapDays] = useState(() => localStorage.getItem('dca_gapDays') || '10');
+  const [startDate, setStartDate] = useState(() => localStorage.getItem('dca_startDate') || new Date().toISOString().split('T')[0]);
+  const [targetPrice, setTargetPrice] = useState(() => localStorage.getItem('dca_targetPrice') || '100');
+  const [rateUSD, setRateUSD] = useState(() => localStorage.getItem('dca_rateUSD') || '83.5');
+  const [rateAED, setRateAED] = useState(() => localStorage.getItem('dca_rateAED') || '22.7');
+  const [buyAtStart, setBuyAtStart] = useState(() => localStorage.getItem('dca_buyAtStart') === 'true');
+  const [fxEnabled, setFxEnabled] = useState(() => localStorage.getItem('dca_fxEnabled') === 'true');
 
-export default function DcaCalculator() {
-  // ── State ──
-  const [primaryCurrency, setPrimaryCurrency] = useState('INR');
-  const [inputs, setInputs] = useState({
-    startPrice: 100,
-    totalInvestment: '1,00,000', // String to handle commas
-    initialInvestAmt: 10000,
-    txChangePct: 50,
-    initialDecline: 5,
-    divisor: 2,
-    declineBasis: 'relative', // 'relative' or 'start'
-    gapDays: 10,
-    startDate: new Date().toISOString().split('T')[0],
-    targetPrice: 100,
-    rateUSD: 83.5,
-    rateAED: 22.7,
-    buyAtStart: false,
+  // ── State: UI ──
+  const [cols, setCols] = useState(() => {
+    const saved = localStorage.getItem('dca_cols');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      const savedMap = Object.fromEntries(parsed.map((c, i) => [c.key, { visible: c.visible, order: i }]));
+      const newCols = [...DEFAULT_COLS];
+      newCols.sort((a, b) => (savedMap[a.key]?.order ?? 999) - (savedMap[b.key]?.order ?? 999));
+      newCols.forEach(c => { if (c.key in savedMap) c.visible = savedMap[c.key].visible; });
+      return newCols;
+    }
+    return DEFAULT_COLS;
   });
-  
-  const [fxEnabled, setFxEnabled] = useState(false);
-  
-  // Columns state
-  const [cols, setCols] = useState([
-    { key: 'txNum',        label: '#',                  visible: true  },
-    { key: 'date',         label: 'Day',                visible: true  },
-    { key: 'price',        label: 'Price',              visible: true,  currency: true },
-    { key: 'txAmount',     label: 'Invested This Tx',   visible: true,  currency: true },
-    { key: 'txUnits',      label: 'Units This Tx',      visible: true  },
-    { key: 'avgCost',      label: 'Avg Cost/Unit',      visible: true,  currency: true },
-    { key: 'totalCapital', label: 'Total Invested',     visible: true,  currency: true },
-    { key: 'pnlCurrent',   label: 'P&L at Current',    visible: true,  currency: true },
-    { key: 'pnlPrev',      label: 'P&L at Prev Stage', visible: true,  currency: true },
-    { key: 'profit',       label: 'Profit @ Target',    visible: true,  currency: true },
-  ]);
-
-  const [lastRows, setLastRows] = useState([]);
   const [isColPanelOpen, setIsColPanelOpen] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-  const [lastTargetPriceINR, setLastTargetPriceINR] = useState(100);
-
-  // Drag and drop state
-  const [dragSrcIndex, setDragSrcIndex] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [dragSrc, setDragSrc] = useState(null);
 
   // ── Persistence ──
-  useEffect(() => {
-    // Load state
-    const savedPrimary = localStorage.getItem('dca_primaryCurrency');
-    if (savedPrimary) setPrimaryCurrency(savedPrimary);
+  useEffect(() => localStorage.setItem('dca_primaryCurrency', primaryCurrency), [primaryCurrency]);
+  useEffect(() => localStorage.setItem('dca_startPrice', startPrice), [startPrice]);
+  useEffect(() => localStorage.setItem('dca_totalInvestment', totalInvestment), [totalInvestment]);
+  useEffect(() => localStorage.setItem('dca_initialInvestAmt', initialInvestAmt), [initialInvestAmt]);
+  useEffect(() => localStorage.setItem('dca_txChangePct', txChangePct), [txChangePct]);
+  useEffect(() => localStorage.setItem('dca_initialDecline', initialDecline), [initialDecline]);
+  useEffect(() => localStorage.setItem('dca_divisor', divisor), [divisor]);
+  useEffect(() => localStorage.setItem('dca_declineBasis', declineBasis), [declineBasis]);
+  useEffect(() => localStorage.setItem('dca_gapDays', gapDays), [gapDays]);
+  useEffect(() => localStorage.setItem('dca_startDate', startDate), [startDate]);
+  useEffect(() => localStorage.setItem('dca_targetPrice', targetPrice), [targetPrice]);
+  useEffect(() => localStorage.setItem('dca_rateUSD', rateUSD), [rateUSD]);
+  useEffect(() => localStorage.setItem('dca_rateAED', rateAED), [rateAED]);
+  useEffect(() => localStorage.setItem('dca_buyAtStart', buyAtStart), [buyAtStart]);
+  useEffect(() => localStorage.setItem('dca_fxEnabled', fxEnabled), [fxEnabled]);
+  useEffect(() => localStorage.setItem('dca_cols', JSON.stringify(cols.map(c => ({ key: c.key, visible: c.visible })))), [cols]);
 
-    const savedFx = localStorage.getItem('dca_fxEnabled');
-    if (savedFx === 'true') setFxEnabled(true);
-    
-    const savedBuyAtStart = localStorage.getItem('dca_buyAtStart');
+  // ── Helpers ──
+  const getRateUSD = () => parseFloat(rateUSD) || 1;
+  const getRateAED = () => parseFloat(rateAED) || 1;
 
-    const newInputs = { ...inputs };
-    let hasSaved = false;
-    
-    // List of keys to load
-    const keys = ['startPrice','totalInvestment','initialInvestAmt','txChangePct',
-                  'gapDays','startDate','targetPrice','initialDecline','divisor',
-                  'rateUSD','rateAED'];
-    
-    keys.forEach(key => {
-      const v = localStorage.getItem('dca_' + key);
-      if (v !== null) {
-        if (key === 'totalInvestment') newInputs[key] = v; // keep as string with commas
-        else if (['startDate'].includes(key)) newInputs[key] = v;
-        else newInputs[key] = parseFloat(v);
-        hasSaved = true;
-      }
-    });
-
-    if (savedBuyAtStart !== null) newInputs.buyAtStart = savedBuyAtStart === 'true';
-
-    const savedBasis = localStorage.getItem('dca_declineBasis');
-    if (savedBasis) newInputs.declineBasis = savedBasis;
-
-    if (hasSaved) setInputs(newInputs);
-
-    // Load Cols
-    const savedColsRaw = localStorage.getItem('dca_cols');
-    if (savedColsRaw) {
-      try {
-        const savedCols = JSON.parse(savedColsRaw);
-        const savedMap = Object.fromEntries(savedCols.map((c, i) => [c.key, { visible: c.visible, order: i }]));
-        const sortedCols = [...cols].sort((a, b) => (savedMap[a.key]?.order ?? 999) - (savedMap[b.key]?.order ?? 999));
-        sortedCols.forEach(c => {
-          if (c.key in savedMap) c.visible = savedMap[c.key].visible;
-        });
-        setCols(sortedCols);
-      } catch (e) { console.error("Error loading cols", e); }
-    }
-  }, []);
-
-  // Save on change
-  useEffect(() => {
-    localStorage.setItem('dca_primaryCurrency', primaryCurrency);
-  }, [primaryCurrency]);
-
-  useEffect(() => {
-    localStorage.setItem('dca_fxEnabled', fxEnabled);
-  }, [fxEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem('dca_cols', JSON.stringify(cols.map(c => ({ key: c.key, visible: c.visible }))));
-  }, [cols]);
-
-  useEffect(() => {
-    Object.entries(inputs).forEach(([key, val]) => {
-      if (key === 'declineBasis') localStorage.setItem('dca_' + key, val);
-      else if (key === 'buyAtStart') localStorage.setItem('dca_' + key, val);
-      else localStorage.setItem('dca_' + key, val);
-    });
-  }, [inputs]);
-
-
-  // ── Derived Values & Helpers ──
-
-  const getRateUSD = () => parseFloat(inputs.rateUSD) || 1;
-  const getRateAED = () => parseFloat(inputs.rateAED) || 1;
-
-  const curSym = (cur = primaryCurrency) => {
-    return cur === 'INR' ? '₹' : cur === 'USD' ? '$' : 'AED\u202f';
-  };
-
-  const curLocale = (cur = primaryCurrency) => {
-    return cur === 'INR' ? 'en-IN' : 'en-US';
-  };
+  const curSym = (cur = primaryCurrency) => cur === 'INR' ? '₹' : cur === 'USD' ? '$' : 'AED\u202f';
+  const curLocale = (cur = primaryCurrency) => cur === 'INR' ? 'en-IN' : 'en-US';
 
   const toPrimary = (inr) => {
     if (primaryCurrency === 'USD') return inr / getRateUSD();
     if (primaryCurrency === 'AED') return inr / getRateAED();
     return inr;
   };
-
   const fromPrimary = (val) => {
     if (primaryCurrency === 'USD') return val * getRateUSD();
     if (primaryCurrency === 'AED') return val * getRateAED();
     return val;
   };
-
   const inrTo = (inr, cur) => {
     if (cur === 'USD') return inr / getRateUSD();
     if (cur === 'AED') return inr / getRateAED();
     return inr;
   };
 
-  const investStep = () => primaryCurrency === 'INR' ? 500 : 10;
-
-  const getBudget = () => {
-    const raw = typeof inputs.totalInvestment === 'string' ? inputs.totalInvestment.replace(/,/g, '') : inputs.totalInvestment;
-    return parseFloat(raw) || 0;
-  };
-
-  const getInitialInvest = () => parseFloat(inputs.initialInvestAmt) || 0;
-
   const fmt = (n, dec = 2) => {
     const sym = curSym();
     return sym + n.toLocaleString(curLocale(), { minimumFractionDigits: dec, maximumFractionDigits: dec });
   };
+  const fmtPct = (n) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%';
 
-  // ── Logic: Build Tx Amounts ──
-  const buildTxAmounts = (total, initialAmt, txChangePct) => {
-    const txMultiplier = 1 + txChangePct / 100;
-    const txAmounts = [];
-    let tx = initialAmt;
+  const parseNum = (v) => parseFloat(String(v).replace(/,/g, '')) || 0;
+
+  // ── Logic ──
+  const calculation = useMemo(() => {
+    const startPriceINR = fromPrimary(parseNum(startPrice));
+    const totalBudgetINR = fromPrimary(parseNum(totalInvestment));
+    const initialAmtINR = fromPrimary(parseNum(initialInvestAmt));
+    const txChgPctVal = parseNum(txChangePct);
+    const gapDaysVal = parseInt(gapDays) || 1;
+    const initialDeclineVal = parseNum(initialDecline);
+    const divisorVal = parseNum(divisor) || 1;
+    const targetPriceINR = fromPrimary(parseNum(targetPrice));
+    const startDateObj = new Date(startDate);
+
+    // Build Tx Amounts
+    const txMultiplier = 1 + txChgPctVal / 100;
+    const txAmountsINR = [];
+    let tx = initialAmtINR;
     let cumulative = 0;
-    while (cumulative < total) {
-      const remaining = total - cumulative;
+    // Safety break
+    let safety = 0;
+    while (cumulative < totalBudgetINR && safety < 500) {
+      const remaining = totalBudgetINR - cumulative;
       const thisAmount = Math.min(tx, remaining);
-      txAmounts.push(thisAmount);
+      if (thisAmount <= 0.01) break; // avoid infinite dust
+      txAmountsINR.push(thisAmount);
       cumulative += thisAmount;
       tx = tx * txMultiplier;
-      if (tx <= 0 || txAmounts.length > 200) break;
-    }
-    return txAmounts;
-  };
-
-  // ── Logic: Preview ──
-  const previewData = useMemo(() => {
-    const total = getBudget() || 100000;
-    const initialAmt = getInitialInvest() || total * 0.1;
-    const txChgPct = parseFloat(inputs.txChangePct) || 50;
-    const initial = parseFloat(inputs.initialDecline) || 5;
-    const divisor = parseFloat(inputs.divisor) || 2;
-    const basis = inputs.declineBasis;
-    const startPrice = parseFloat(inputs.startPrice) || 100;
-
-    const txAmounts = buildTxAmounts(total, initialAmt, txChgPct);
-    const txPreview = txAmounts.slice(0, 5).map(a => fmt(a, 0)).join(' → ');
-
-    const declinePreviews = [];
-    let rate = initial;
-    let simPrice = startPrice;
-
-    for (let i = 0; i < Math.min(txAmounts.length, 5); i++) {
-      if (basis === 'start') {
-        simPrice = simPrice - startPrice * rate / 100;
-      } else {
-        simPrice = simPrice * (1 - rate / 100);
-      }
-      declinePreviews.push(`${formatPct(rate)} → ${fmt(simPrice, 2)}`);
-      rate = rate / divisor;
+      safety++;
     }
 
-    return {
-      initialAmt,
-      pctOfBudget: (initialAmt / total * 100).toFixed(1),
-      count: txAmounts.length,
-      txPreview,
-      hasMoreTx: txAmounts.length > 5,
-      declinePreviews,
-      basisLabel: basis === 'start' ? 'from start' : 'from last',
-      basisHint: basis === 'start' ? 'flat from start price' : 'compounding'
-    };
-  }, [inputs, primaryCurrency]);
-
-  // ── Logic: Calculate ──
-  const handleCalculate = () => {
-    const startPriceINR = fromPrimary(parseFloat(inputs.startPrice));
-    const totalBudgetINR = fromPrimary(getBudget());
-    const initialAmtINR = fromPrimary(getInitialInvest());
-    const txChangePct = parseFloat(inputs.txChangePct);
-    const gapDays = parseInt(inputs.gapDays);
-    const initialDecline = parseFloat(inputs.initialDecline);
-    const divisor = parseFloat(inputs.divisor);
-    const targetPriceINR = fromPrimary(parseFloat(inputs.targetPrice));
-    const startDate = new Date(inputs.startDate);
-
-    const buyAtStart = inputs.buyAtStart;
-    const txAmountsINR = buildTxAmounts(totalBudgetINR, initialAmtINR, txChangePct);
-    const totalSteps = txAmountsINR.length;
-
+    const rows = [];
     let currentPriceINR = startPriceINR;
-    let currentDecline = initialDecline;
+    let currentDecline = initialDeclineVal;
     let totalUnits = 0;
     let totalCapitalINR = 0;
-    const rows = [];
 
     if (buyAtStart) {
       const units = initialAmtINR / startPriceINR;
@@ -254,7 +139,7 @@ export default function DcaCalculator() {
       const avgCostINR = totalCapitalINR / totalUnits;
       rows.push({
         txNum: 1, isStartBuy: true,
-        date: startDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        date: startDateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         priceINR: startPriceINR,
         txAmountINR: initialAmtINR,
         txUnits: units,
@@ -268,8 +153,8 @@ export default function DcaCalculator() {
       });
     }
 
-    const declineBasis = inputs.declineBasis;
     const loopStart = buyAtStart ? 1 : 0;
+    const totalSteps = txAmountsINR.length;
 
     for (let i = loopStart; i < totalSteps; i++) {
       const declineUsed = currentDecline;
@@ -278,10 +163,10 @@ export default function DcaCalculator() {
       } else {
         currentPriceINR = currentPriceINR * (1 - currentDecline / 100);
       }
-      currentDecline = currentDecline / divisor;
+      currentDecline = currentDecline / divisorVal;
 
-      const date = new Date(startDate);
-      date.setDate(date.getDate() + i * gapDays);
+      const d = new Date(startDateObj);
+      d.setDate(d.getDate() + i * gapDaysVal);
 
       const investedINR = txAmountsINR[i];
       const units = investedINR / currentPriceINR;
@@ -294,7 +179,7 @@ export default function DcaCalculator() {
 
       rows.push({
         txNum: i + 1 + (buyAtStart ? 1 : 0),
-        date: date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         priceINR: currentPriceINR,
         txAmountINR: investedINR,
         txUnits: units,
@@ -308,63 +193,124 @@ export default function DcaCalculator() {
       });
     }
 
-    setLastRows(rows);
-    setLastTargetPriceINR(targetPriceINR);
-    setShowResults(true);
-  };
+    // Preview Data
+    const txAmountsPreview = txAmountsINR.map(val => toPrimary(val));
+    const declinePreviews = [];
+    let rate = initialDeclineVal;
+    let simPrice = parseNum(startPrice);
+    for (let i = 0; i < Math.min(txAmountsPreview.length, 5); i++) {
+        if (declineBasis === 'start') {
+            simPrice = simPrice - parseNum(startPrice) * rate / 100;
+        } else {
+            simPrice = simPrice * (1 - rate / 100);
+        }
+        declinePreviews.push({ rate, price: simPrice });
+        rate = rate / divisorVal;
+    }
 
+    return { rows, txAmountsPreview, declinePreviews, targetPriceINR, startPriceINR };
+  }, [
+    startPrice, totalInvestment, initialInvestAmt, txChangePct, gapDays,
+    startDate, targetPrice, rateUSD, rateAED, buyAtStart, declineBasis,
+    divisor, initialDecline, primaryCurrency // primaryCurrency affects parsing if values weren't updated? No, state holds raw strings which might be in primary.
+    // Wait, parseNum assumes the state string is in primary currency. fromPrimary converts it. Correct.
+  ]);
+
+  const { rows, txAmountsPreview, declinePreviews, targetPriceINR } = calculation;
 
   // ── Handlers ──
-  const handleInputChange = (field, value) => {
-    setInputs(prev => ({ ...prev, [field]: value }));
+  const handleDragStart = (e, idx) => {
+    setDragSrc(idx);
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+  };
+  const handleDragLeave = (e) => {
+    e.currentTarget.classList.remove('drag-over');
+  };
+  const handleDrop = (e, targetIdx) => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (dragSrc === null || dragSrc === targetIdx) return;
+    const newCols = [...cols];
+    const [moved] = newCols.splice(dragSrc, 1);
+    newCols.splice(targetIdx, 0, moved);
+    setCols(newCols);
+    setDragSrc(null);
+  };
+  
+  const toggleCol = (idx, checked) => {
+    const newCols = [...cols];
+    newCols[idx].visible = checked;
+    setCols(newCols);
   };
 
-  const handleBudgetChange = (e) => {
-    // Basic comma formatting
-    let raw = e.target.value.replace(/[^0-9]/g, '');
-    if (!raw) {
-      handleInputChange('totalInvestment', '');
-      return;
-    }
-    const val = parseInt(raw, 10).toLocaleString(curLocale());
-    handleInputChange('totalInvestment', val);
-  };
+  const copyForAI = (btn) => {
+    const sym = curSym();
+    const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
+    const visibleCols = cols.filter(c => c.visible);
 
-  const syncTargetPrice = () => {
-    handleInputChange('targetPrice', inputs.startPrice);
-  };
+    const params = [
+      `Currency: ${primaryCurrency}`,
+      `Start Price: ${sym}${startPrice}`,
+      `Target Price: ${sym}${targetPrice}`,
+      `Budget: ${sym}${totalInvestment}`,
+      `Initial Invest: ${sym}${initialInvestAmt}`,
+      `Tx Change: ${txChangePct}%`,
+      `Initial Decline: ${initialDecline}%`,
+      `Divisor: ${divisor}`,
+      `Decline Basis: ${declineBasis}`,
+      `Gap: ${gapDays} days`,
+      `Start Date: ${startDate}`,
+      `Buy at Start: ${buyAtStart}`,
+      `₹/USD: ${rateUSD} | ₹/AED: ${rateAED}`,
+    ].join(' | ');
 
-  // ── UI Components ──
-
-  const InputHint = ({ inrVal }) => {
-    const others = ['INR', 'USD', 'AED'].filter(c => c !== primaryCurrency);
-    if (!inrVal) return null;
-    
-    // We expect inrVal to be primary value here actually? No, hints take INR usually?
-    // Wait, the original code takes "startPrice" which is primary currency value.
-    // The `updateRateHints` function in original code converts "sp" (primary) -> INR -> others.
-    
-    // So if inputs.startPrice is 100 USD.
-    // inr = 100 * 83.5 = 8350 INR.
-    // others (INR, AED):
-    // INR = 8350
-    // AED = 8350 / 22.7
-    
-    const inr = fromPrimary(inrVal);
-    
-    const parts = others.map(cur => {
-      const val = inrTo(inr, cur);
-      const sym = curSym(cur);
-      const loc = curLocale(cur);
-      return `${sym}${val.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const headers = visibleCols.map(c => {
+      if (c.key === 'profit') return `Profit@${sym}${toPrimary(targetPriceINR).toFixed(0)}` + (fxEnabled ? others.map(x => `+${curSym(x)}`).join('') : '');
+      if (c.currency && fxEnabled) return `${c.label}(${sym})` + others.map(x => `+${curSym(x)}`).join('');
+      if (c.currency) return `${c.label}(${sym})`;
+      return c.label;
     });
-    
-    return <div className="input-hint" style={{ color: '#b07d00', opacity: 0.85 }}>{parts.join(' · ')}</div>;
+
+    const fmtCell = (inr, isNull = false) => {
+        if (isNull) return 'n/a';
+        const primary = toPrimary(inr).toFixed(2);
+        if (!fxEnabled) return primary;
+        return [primary, ...others.map(cur => inrTo(inr, cur).toFixed(2))].join('/');
+    };
+
+    const tableRows = rows.map(r => {
+        return visibleCols.map(c => {
+            switch (c.key) {
+                case 'txNum': return r.txNum;
+                case 'date': return r.date + (r.declineRate ? ` -${r.declineRate.toFixed(2)}%` : '');
+                case 'price': return fmtCell(r.priceINR);
+                case 'txAmount': return fmtCell(r.txAmountINR);
+                case 'txUnits': return r.txUnits.toFixed(4);
+                case 'avgCost': return fmtCell(r.avgCostINR);
+                case 'totalCapital': return fmtCell(r.totalCapitalINR);
+                case 'pnlCurrent': return fmtCell(r.pnlCurrentINR) + ` (${(r.pnlCurrentINR/r.totalCapitalINR*100).toFixed(2)}%)`;
+                case 'pnlPrev': return r.pnlPrevINR !== null ? fmtCell(r.pnlPrevINR) + ` (${(r.pnlPrevINR/r.totalCapitalINR*100).toFixed(2)}%)` : 'n/a';
+                case 'profit': return fmtCell(r.profitAtTargetINR) + ` (${(r.profitAtTargetINR/r.totalCapitalINR*100).toFixed(2)}%)`;
+                default: return '';
+            }
+        }).join('\t');
+    }).join('\n');
+
+    const text = `DCA Simulation\n${params}\n\n${headers.join('\t')}\n${tableRows}`;
+    navigator.clipboard.writeText(text);
+    // Visual feedback handled by button text change logic in JSX if wanted, or just simple alert
   };
 
+  // ── Render Helpers ──
   const FxHint = ({ inr }) => {
     if (!fxEnabled) return null;
-    const others = ['INR', 'USD', 'AED'].filter(c => c !== primaryCurrency);
+    const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
     const sign = inr < 0 ? '-' : '';
     const abs = Math.abs(inr);
     const parts = others.map(cur => {
@@ -376,498 +322,238 @@ export default function DcaCalculator() {
     return <span className="fx-hint">{parts.join(' · ')}</span>;
   };
 
-  const CopyButton = () => {
-    const [label, setLabel] = useState('⎘');
-    
-    const handleCopy = () => {
-        const v = (key) => inputs[key];
-        const sym = curSym();
-        const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
-
-        const params = [
-            `Currency: ${primaryCurrency}`,
-            `Start Price: ${sym}${v('startPrice')}`,
-            `Target Price: ${sym}${v('targetPrice')}`,
-            `Budget: ${sym}${v('totalInvestment')}`,
-            `Initial Invest: ${sym}${v('initialInvestAmt')}`,
-            `Tx Change: ${v('txChangePct')}%`,
-            `Initial Decline: ${v('initialDecline')}%`,
-            `Divisor: ${v('divisor')}`,
-            `Decline Basis: ${inputs.declineBasis}`,
-            `Gap: ${v('gapDays')} days`,
-            `Start Date: ${v('startDate')}`,
-            `Buy at Start: ${inputs.buyAtStart}`,
-            `₹/USD: ${v('rateUSD')} | ₹/AED: ${v('rateAED')}`,
-        ].join(' | ');
-
-        const visibleCols = cols.filter(c => c.visible);
-
-        const headers = visibleCols.map(c => {
-            if (c.key === 'profit') return `Profit@${sym}${toPrimary(lastTargetPriceINR).toFixed(0)}` +
-                (fxEnabled ? others.map(x => `+${curSym(x)}`).join('') : '');
-            if (c.currency && fxEnabled) return `${c.label}(${sym})` + others.map(x => `+${curSym(x)}`).join('');
-            if (c.currency) return `${c.label}(${sym})`;
-            return c.label;
-        });
-
-        const fmtCell = (inr, isNull = false) => {
-            if (isNull) return 'n/a';
-            const primary = toPrimary(inr).toFixed(2);
-            if (!fxEnabled) return primary;
-            return [primary, ...others.map(cur => inrTo(inr, cur).toFixed(2))].join('/');
-        };
-
-        const rowsStr = lastRows.map(r => {
-            return visibleCols.map(c => {
-                switch (c.key) {
-                    case 'txNum': return r.txNum;
-                    case 'date': return r.date + (r.declineRate ? ` -${r.declineRate.toFixed(2)}%` : '');
-                    case 'price': return fmtCell(r.priceINR);
-                    case 'txAmount': return fmtCell(r.txAmountINR);
-                    case 'txUnits': return r.txUnits.toFixed(4);
-                    case 'avgCost': return fmtCell(r.avgCostINR);
-                    case 'totalCapital': return fmtCell(r.totalCapitalINR);
-                    case 'pnlCurrent': return fmtCell(r.pnlCurrentINR) + ` (${(r.pnlCurrentINR / r.totalCapitalINR * 100).toFixed(2)}%)`;
-                    case 'pnlPrev': return r.pnlPrevINR !== null ? fmtCell(r.pnlPrevINR) + ` (${(r.pnlPrevINR / r.totalCapitalINR * 100).toFixed(2)}%)` : 'n/a';
-                    case 'profit': return fmtCell(r.profitAtTargetINR) + ` (${(r.profitAtTargetINR / r.totalCapitalINR * 100).toFixed(2)}%)`;
-                    default: return '';
-                }
-            }).join('\t');
-        }).join('\n');
-
-        const text = `DCA Simulation\n${params}\n\n${headers.join('\t')}\n${rowsStr}`;
-        
-        navigator.clipboard.writeText(text).then(() => {
-            setLabel('✓');
-            setTimeout(() => setLabel('⎘'), 1500);
-        });
-    };
-
-    return (
-        <button className="col-btn" onClick={handleCopy} title="Copy all data for AI" style={{ fontSize: '13px', padding: '4px 7px' }}>
-            {label}
-        </button>
-    );
+  const RateHints = ({ valStr }) => {
+      const val = parseNum(valStr);
+      if (!val) return null;
+      const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
+      const inr = fromPrimary(val); // Assume val is in primary
+      const parts = others.map(cur => {
+          const v = inrTo(inr, cur);
+          const sym = curSym(cur);
+          const loc = curLocale(cur);
+          return `${sym}${v.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      });
+      return <div className="input-hint" style={{color:'#b07d00', opacity:0.85}}>{parts.join(' · ')}</div>
   };
-
-  // DnD Handlers
-  const handleDragStart = (e, index) => {
-    setDragSrcIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.currentTarget.classList.add('dragging');
-  };
-
-  const handleDragOver = (e, index) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDrop = (e, index) => {
-    e.preventDefault();
-    if (dragSrcIndex === null || dragSrcIndex === index) {
-      setDragSrcIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    const newCols = [...cols];
-    const [moved] = newCols.splice(dragSrcIndex, 1);
-    newCols.splice(index, 0, moved);
-    setCols(newCols);
-    setDragSrcIndex(null);
-    setDragOverIndex(null);
-  };
-
-  const handleDragEnd = (e) => {
-      e.currentTarget.classList.remove('dragging');
-      setDragSrcIndex(null);
-      setDragOverIndex(null);
-  };
-
 
   return (
-    <>
+    <div>
       <div className="top-bar">
         <div className="top-bar-title">
           DCA — Decline & Invest Calculator
-          <div style={{ display: 'flex', gap: '4px' }}>
-            {['INR', 'USD', 'AED'].map(cur => (
-              <button
-                key={cur}
-                className={`cur-btn ${primaryCurrency === cur ? 'active' : ''}`}
-                onClick={() => setPrimaryCurrency(cur)}
-              >
-                {cur === 'INR' ? '₹ INR' : cur === 'USD' ? '$ USD' : 'AED'}
-              </button>
+          <div style={{display:'flex', gap:'4px'}}>
+            {['INR','USD','AED'].map(c => (
+              <button key={c}
+                className={`cur-btn ${primaryCurrency === c ? 'active' : ''}`}
+                onClick={() => setPrimaryCurrency(c)}
+              >{c === 'INR' ? '₹ INR' : c === 'USD' ? '$ USD' : 'AED'}</button>
             ))}
           </div>
         </div>
-
+        
         <div className="inputs-row">
-          <div className="input-cell">
-            <label>Start Price (<span className="cur-sym">{curSym()}</span>)</label>
-            <input
-              type="number"
-              value={inputs.startPrice}
-              min="0" step="1"
-              onChange={(e) => handleInputChange('startPrice', e.target.value)}
-            />
-            <InputHint inrVal={inputs.startPrice} />
-          </div>
-
-          <div className="input-cell" style={{ flexBasis: '150px', maxWidth: '200px' }}>
-            <label>Total Budget (<span className="cur-sym">{curSym()}</span>)</label>
-            <input
-              type="text"
-              value={inputs.totalInvestment}
-              onChange={handleBudgetChange}
-            />
-            <InputHint inrVal={getBudget()} />
-          </div>
-
-          <div className="sec-divider"></div>
-
-          <div className="input-cell" style={{ flexBasis: '150px', maxWidth: '200px' }}>
-            <label>Initial Invest (<span className="cur-sym">{curSym()}</span>)</label>
-            <input
-              type="number"
-              value={inputs.initialInvestAmt}
-              min="0" step={investStep()}
-              onChange={(e) => handleInputChange('initialInvestAmt', e.target.value)}
-            />
-            <div className="input-hint">{fmt(previewData.initialAmt, 0)} · {previewData.pctOfBudget}% of budget</div>
-            <InputHint inrVal={getInitialInvest()} />
-          </div>
-
-          <div className="input-cell">
-            <label>Tx Change / Decline (%)</label>
-            <input
-              type="number"
-              value={inputs.txChangePct}
-              min="-100" step="10"
-              onChange={(e) => handleInputChange('txChangePct', e.target.value)}
-            />
-          </div>
-
-          <div className="sec-divider"></div>
-
-          <div className="input-cell">
-            <label>Initial Decline (%)</label>
-            <input
-              type="number"
-              value={inputs.initialDecline}
-              min="0" step="1"
-              onChange={(e) => handleInputChange('initialDecline', e.target.value)}
-            />
-          </div>
-          <div className="input-cell">
-            <label>Divisor</label>
-            <input
-              type="number"
-              value={inputs.divisor}
-              min="0" step="0.1"
-              onChange={(e) => handleInputChange('divisor', e.target.value)}
-            />
-            <div className="input-hint">halves each step</div>
-          </div>
-
-          <div className="input-cell" style={{ flexBasis: '130px', maxWidth: '160px' }}>
-            <label>Decline Basis</label>
-            <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', fontWeight: 500, color: '#555', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="declineBasis"
-                  value="relative"
-                  checked={inputs.declineBasis === 'relative'}
-                  onChange={() => handleInputChange('declineBasis', 'relative')}
-                  style={{ width: '11px', height: '11px', accentColor: '#4f46e5' }}
-                />
-                Last price
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', fontWeight: 500, color: '#555', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="declineBasis"
-                  value="start"
-                  checked={inputs.declineBasis === 'start'}
-                  onChange={() => handleInputChange('declineBasis', 'start')}
-                  style={{ width: '11px', height: '11px', accentColor: '#4f46e5' }}
-                />
-                Start price
-              </label>
+            <div className="input-cell">
+                <label>Start Price (<span className="cur-sym">{curSym()}</span>)</label>
+                <input type="number" value={startPrice} min="0" step="1" onChange={e => setStartPrice(e.target.value)} />
+                <RateHints valStr={startPrice} />
             </div>
-            <div className="input-hint">{previewData.basisHint}</div>
-          </div>
+            <div className="input-cell" style={{flexBasis:'150px', maxWidth:'200px'}}>
+                <label>Total Budget (<span className="cur-sym">{curSym()}</span>)</label>
+                <input type="text" value={totalInvestment} 
+                       onChange={e => {
+                           // Simple formatting for display? Or allow raw?
+                           // Keeping it simple: allow raw typing, format on blur or just let it be. 
+                           // The original had formatBudget. 
+                           setTotalInvestment(e.target.value);
+                       }}
+                       onBlur={e => {
+                           const raw = e.target.value.replace(/,/g, '');
+                           if(raw && !isNaN(raw)) setTotalInvestment(Number(raw).toLocaleString(curLocale()));
+                       }}
+                />
+                <RateHints valStr={totalInvestment} />
+            </div>
 
-          <div className="sec-divider"></div>
+            <div className="sec-divider"></div>
 
-          <div className="input-cell">
-            <label>Gap (days)</label>
-            <input
-              type="number"
-              value={inputs.gapDays}
-              min="1"
-              onChange={(e) => handleInputChange('gapDays', e.target.value)}
-            />
-          </div>
-          <div className="input-cell">
-            <label>Start Date</label>
-            <input
-              type="date"
-              value={inputs.startDate}
-              onChange={(e) => handleInputChange('startDate', e.target.value)}
-            />
-          </div>
+            <div className="input-cell" style={{flexBasis:'150px', maxWidth:'200px'}}>
+                <label>Initial Invest (<span className="cur-sym">{curSym()}</span>)</label>
+                <input type="number" value={initialInvestAmt} min="0" step={primaryCurrency === 'INR' ? 500 : 10} onChange={e => setInitialInvestAmt(e.target.value)} />
+                <div className="input-hint">
+                    {fmt(parseNum(initialInvestAmt), 0)} · {((parseNum(initialInvestAmt)/parseNum(totalInvestment))*100 || 0).toFixed(1)}% of budget
+                </div>
+                <RateHints valStr={initialInvestAmt} />
+            </div>
+            <div className="input-cell">
+                <label>Tx Change / Decline (%)</label>
+                <input type="number" value={txChangePct} min="-100" step="10" onChange={e => setTxChangePct(e.target.value)} />
+            </div>
 
-          <div className="input-cell">
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              Target Price (<span className="cur-sym">{curSym()}</span>)
-              <button
-                onClick={syncTargetPrice}
-                title="Set to start price"
-                style={{ fontSize: '11px', padding: '0 3px', border: 'none', background: 'none', color: '#bbb', cursor: 'pointer', lineHeight: 1, opacity: 0.6 }}
-              >
-                ⇡
-              </button>
+            <div className="sec-divider"></div>
+
+            <div className="input-cell">
+                <label>Initial Decline (%)</label>
+                <input type="number" value={initialDecline} min="0" step="1" onChange={e => setInitialDecline(e.target.value)} />
+            </div>
+            <div className="input-cell">
+                <label>Divisor</label>
+                <input type="number" value={divisor} min="0" step="0.1" onChange={e => setDivisor(e.target.value)} />
+                <div className="input-hint">halves each step</div>
+            </div>
+            <div className="input-cell" style={{flexBasis:'130px', maxWidth:'160px'}}>
+                <label>Decline Basis</label>
+                <div style={{display:'flex', gap:'6px', marginTop:'2px'}}>
+                    <label style={{display:'flex', alignItems:'center', gap:'3px', fontSize:'11px', fontWeight:500, color:'#555', cursor:'pointer'}}>
+                        <input type="radio" name="declineBasis" value="relative" checked={declineBasis === 'relative'} onChange={e => setDeclineBasis(e.target.value)} style={{width:'11px', height:'11px', accentColor:'#4f46e5'}} />
+                        Last price
+                    </label>
+                    <label style={{display:'flex', alignItems:'center', gap:'3px', fontSize:'11px', fontWeight:500, color:'#555', cursor:'pointer'}}>
+                        <input type="radio" name="declineBasis" value="start" checked={declineBasis === 'start'} onChange={e => setDeclineBasis(e.target.value)} style={{width:'11px', height:'11px', accentColor:'#4f46e5'}} />
+                        Start price
+                    </label>
+                </div>
+                <div className="input-hint">{declineBasis === 'start' ? 'flat from start price' : 'compounding'}</div>
+            </div>
+
+            <div className="sec-divider"></div>
+
+            <div className="input-cell">
+                <label>Gap (days)</label>
+                <input type="number" value={gapDays} min="1" onChange={e => setGapDays(e.target.value)} />
+            </div>
+            <div className="input-cell">
+                <label>Start Date</label>
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div className="input-cell">
+                <label style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                    Target Price (<span className="cur-sym">{curSym()}</span>)
+                    <button onClick={() => setTargetPrice(startPrice)} title="Set to start price" style={{fontSize:'11px', padding:'0 3px', border:'none', background:'none', color:'#bbb', cursor:'pointer', lineHeight:1}}>⇡</button>
+                </label>
+                <input type="number" value={targetPrice} min="0" step="1" onChange={e => setTargetPrice(e.target.value)} />
+                <RateHints valStr={targetPrice} />
+            </div>
+
+            <div className="sec-divider"></div>
+
+            <div className="input-cell">
+                <label>₹ per USD</label>
+                <input type="number" value={rateUSD} min="0" step="1" onChange={e => setRateUSD(e.target.value)} />
+            </div>
+            <div className="input-cell">
+                <label>₹ per AED</label>
+                <input type="number" value={rateAED} min="0" step="1" onChange={e => setRateAED(e.target.value)} />
+            </div>
+            <label style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', color:'#666', cursor:'pointer', alignSelf:'flexEnd', whiteSpace:'nowrap'}}>
+                <input type="checkbox" checked={buyAtStart} onChange={e => setBuyAtStart(e.target.checked)} style={{width:'12px', height:'12px', accentColor:'#4f46e5'}} />
+                Buy at start
             </label>
-            <input
-              type="number"
-              value={inputs.targetPrice}
-              min="0" step="1"
-              onChange={(e) => handleInputChange('targetPrice', e.target.value)}
-            />
-            <InputHint inrVal={inputs.targetPrice} />
-          </div>
-
-          <div className="sec-divider"></div>
-
-          <div className="input-cell">
-            <label>₹ per USD</label>
-            <input
-              type="number"
-              value={inputs.rateUSD}
-              min="0" step="1"
-              onChange={(e) => handleInputChange('rateUSD', e.target.value)}
-            />
-          </div>
-          <div className="input-cell">
-            <label>₹ per AED</label>
-            <input
-              type="number"
-              value={inputs.rateAED}
-              min="0" step="1"
-              onChange={(e) => handleInputChange('rateAED', e.target.value)}
-            />
-          </div>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#666', cursor: 'pointer', alignSelf: 'flex-end', whiteSpace: 'nowrap' }}>
-            <input
-              type="checkbox"
-              checked={inputs.buyAtStart}
-              onChange={(e) => handleInputChange('buyAtStart', e.target.checked)}
-              style={{ width: '12px', height: '12px', accentColor: '#4f46e5' }}
-            />
-            Buy at start
-          </label>
-
-          <button className="calc-btn" onClick={handleCalculate}>Calculate</button>
         </div>
 
-        <div className="formula-preview">
-          <b>{previewData.count} transactions</b> · Amounts: <span>{previewData.txPreview}{previewData.hasMoreTx ? ' → …' : ''}</span> · Declines <em>({previewData.basisLabel})</em>: <span className="tx-seq">{previewData.declinePreviews.join(' → ')}{previewData.hasMoreTx ? ' → …' : ''}</span>
+        <div className="formula-preview" id="formulaPreview">
+             <b>{txAmountsPreview.length} transactions</b> · Amounts: <span>{txAmountsPreview.slice(0,5).map(a => fmt(a,0)).join(' → ')}{txAmountsPreview.length > 5 ? ' → …' : ''}</span> · Declines <em>({declineBasis === 'start' ? 'from start' : 'from last'})</em>: <span className="tx-seq">{declinePreviews.map(d => `${fmtPct(d.rate)} → ${fmt(d.price, 2)}`).join(' → ')}{txAmountsPreview.length > 5 ? ' → …' : ''}</span>
         </div>
       </div>
 
-      {showResults && (
-        <div id="results">
-          <div className="table-card">
-            <div className="table-header">
-              <div className="table-title">Transaction Details</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#aaa', cursor: 'pointer', userSelect: 'none' }}>
-                  <input
-                    type="checkbox"
-                    checked={fxEnabled}
-                    onChange={(e) => setFxEnabled(e.target.checked)}
-                    style={{ width: '12px', height: '12px', accentColor: '#b07d00' }}
-                  />
-                  <span style={{ fontSize: '9px' }}>Show FX</span>
-                </label>
-                <CopyButton />
-                <div style={{ position: 'relative' }}>
-                  <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)}>⚙ Columns</button>
-                  {isColPanelOpen && (
-                    <div className="col-panel" onClick={(e) => e.stopPropagation()}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',borderBottom:'1px solid #eee',paddingBottom:'6px'}}>
-                            <div className="col-panel-title" style={{border:0,margin:0,padding:0}}>Show & reorder</div>
-                            <button onClick={() => setIsColPanelOpen(false)} style={{border:'none',background:'transparent',cursor:'pointer',color:'#999'}}>✕</button>
-                        </div>
-                      <div>
-                        {cols.map((col, idx) => (
-                          <div
-                            key={col.key}
-                            className={`col-item ${dragOverIndex === idx ? 'drag-over' : ''}`}
-                            draggable="true"
-                            onDragStart={(e) => handleDragStart(e, idx)}
-                            onDragOver={(e) => handleDragOver(e, idx)}
-                            onDrop={(e) => handleDrop(e, idx)}
-                            onDragEnd={handleDragEnd}
-                          >
+      <div id="results" style={{display:'block'}}>
+        <div className="table-card">
+          <div className="table-header">
+            <div className="table-title">Transaction Details</div>
+            <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+              <label style={{display:'flex', alignItems:'center', gap:'4px', fontSize:'11px', color:'#aaa', cursor:'pointer', userSelect:'none'}}>
+                <input type="checkbox" checked={fxEnabled} onChange={e => setFxEnabled(e.target.checked)} style={{width:'12px', height:'12px', accentColor:'#b07d00'}} />
+                <span style={{fontSize:'9px'}}>Show FX</span>
+              </label>
+              <button className="col-btn" onClick={e => copyForAI(e.target)} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>⎘</button>
+              <div style={{position:'relative'}}>
+                <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)}>⚙ Columns</button>
+                <div className={`col-panel ${isColPanelOpen ? 'open' : ''}`} id="colPanel">
+                  <div className="col-panel-title">Show & reorder</div>
+                  <div id="colItems">
+                      {cols.map((c, i) => (
+                          <div key={c.key} className="col-item" draggable="true"
+                               onDragStart={(e) => handleDragStart(e, i)}
+                               onDragOver={handleDragOver}
+                               onDrop={(e) => handleDrop(e, i)}
+                               onDragLeave={handleDragLeave}>
                             <span className="drag-handle">⠿</span>
-                            <input
-                              type="checkbox"
-                              checked={col.visible}
-                              onChange={(e) => {
-                                const newCols = [...cols];
-                                newCols[idx].visible = e.target.checked;
-                                setCols(newCols);
-                              }}
-                            />
-                            <span className="col-item-label">{col.label}</span>
+                            <input type="checkbox" checked={c.visible} onChange={e => toggleCol(i, e.target.checked)} />
+                            <span className="col-item-label">{c.label}</span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {/* Click outside listener could be added to body to close panel */}
+                      ))}
+                  </div>
                 </div>
               </div>
             </div>
-
-            <table>
+          </div>
+          
+          {/* Main Table */}
+          <table id="mainTable">
               <thead>
-                <tr>
-                  {cols.filter(c => c.visible).map(c => {
-                    let lbl;
-                    const sym = curSym();
-                    if (c.key === 'profit') {
-                      lbl = `Profit @ ${fmt(toPrimary(lastTargetPriceINR), 0)}`;
-                    } else if (c.currency) {
-                      lbl = `${c.label} (${sym})`;
-                    } else {
-                      lbl = c.label;
-                    }
-                    return (
-                        <th key={c.key} style={c.key === 'date' ? { textAlign: 'left' } : { textAlign: 'right' }}>
-                            {lbl}
-                        </th>
-                    );
-                  })}
-                </tr>
+                  <tr>
+                      {cols.filter(c => c.visible).map(c => {
+                          let lbl = c.label;
+                          if (c.key === 'profit') lbl = `Profit @ ${fmt(toPrimary(targetPriceINR), 0)}`;
+                          else if (c.currency) lbl = `${c.label} (${curSym()})`;
+                          
+                          return <th key={c.key} style={c.key === 'date' ? {textAlign:'left'} : {textAlign:'right'}}>{lbl}</th>;
+                      })}
+                  </tr>
               </thead>
               <tbody>
-                {lastRows.map((r, i) => (
-                  <tr key={i}>
-                    {cols.filter(c => c.visible).map(c => {
-                      const sym = curSym();
-                      let content;
-                      
-                      switch (c.key) {
-                        case 'txNum':
-                          content = <td>{r.txNum}</td>;
-                          break;
-                        case 'date':
-                          content = (
-                            <td className="col-date" style={{ textAlign: 'left', fontWeight: 500 }}>
-                              {r.date}
-                              {!r.isStartBuy && <span className="tag tag-decline">-{formatPct(r.declineRate)}</span>}
-                            </td>
-                          );
-                          break;
-                        case 'price': {
-                          const priceDrop = (r.priceINR - lastTargetPriceINR) / lastTargetPriceINR * 100;
-                          content = (
-                            <td>
-                              {fmt(toPrimary(r.priceINR))}
-                              <span className="pct-hint">{priceDrop.toLocaleString(curLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% from target</span>
-                              <FxHint inr={r.priceINR} />
-                            </td>
-                          );
-                          break;
-                        }
-                        case 'txAmount':
-                          content = (
-                            <td>
-                              {fmt(toPrimary(r.txAmountINR))}
-                              <FxHint inr={r.txAmountINR} />
-                            </td>
-                          );
-                          break;
-                        case 'txUnits':
-                          content = <td>{r.txUnits.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td>;
-                          break;
-                        case 'avgCost': {
-                          const avgDrop = (r.avgCostINR - lastTargetPriceINR) / lastTargetPriceINR * 100;
-                          content = (
-                            <td>
-                              {fmt(toPrimary(r.avgCostINR))}
-                              <span className="pct-hint">{avgDrop.toLocaleString(curLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% from target</span>
-                              <FxHint inr={r.avgCostINR} />
-                            </td>
-                          );
-                          break;
-                        }
-                        case 'totalCapital':
-                          content = (
-                            <td>
-                              {fmt(toPrimary(r.totalCapitalINR))}
-                              <FxHint inr={r.totalCapitalINR} />
-                            </td>
-                          );
-                          break;
-                        case 'pnlPrev': {
-                          if (r.pnlPrevINR === null) {
-                            content = <td>—</td>;
-                          } else {
-                            const pct = r.pnlPrevINR / r.totalCapitalINR * 100;
-                            const cls = r.pnlPrevINR >= 0 ? 'profit-pos' : 'profit-neg';
-                            content = (
-                              <td className={cls}>
-                                {fmt(toPrimary(r.pnlPrevINR))}
-                                <span className="pct-hint">{pct >= 0 ? '+' : ''}{pct.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
-                                <FxHint inr={r.pnlPrevINR} />
-                              </td>
-                            );
-                          }
-                          break;
-                        }
-                        case 'pnlCurrent': {
-                          const pct = r.pnlCurrentINR / r.totalCapitalINR * 100;
-                          const cls = r.pnlCurrentINR >= 0 ? 'profit-pos' : 'profit-neg';
-                          content = (
-                            <td className={cls}>
-                              {fmt(toPrimary(r.pnlCurrentINR))}
-                              <span className="pct-hint">{pct >= 0 ? '+' : ''}{pct.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
-                              <FxHint inr={r.pnlCurrentINR} />
-                            </td>
-                          );
-                          break;
-                        }
-                        case 'profit': {
-                          const pct = r.profitAtTargetINR / r.totalCapitalINR * 100;
-                          const cls = r.profitAtTargetINR >= 0 ? 'profit-pos' : 'profit-neg';
-                          content = (
-                            <td className={cls}>
-                              {fmt(toPrimary(r.profitAtTargetINR))}
-                              <span className="pct-hint">{pct >= 0 ? '+' : ''}{pct.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span>
-                              <FxHint inr={r.profitAtTargetINR} />
-                            </td>
-                          );
-                          break;
-                        }
-                        default:
-                          content = <td></td>;
-                      }
-                      return <React.Fragment key={c.key}>{content}</React.Fragment>;
-                    })}
-                  </tr>
-                ))}
+                  {rows.map(r => (
+                      <tr key={r.txNum}>
+                          {cols.filter(c => c.visible).map(c => {
+                              const cellStyle = c.key === 'date' ? {textAlign:'left', fontWeight:500} : {textAlign:'right'};
+                              let content = null;
+                              switch(c.key) {
+                                  case 'txNum': content = r.txNum; break;
+                                  case 'date': 
+                                      content = <>{r.date}{!r.isStartBuy && <span className="tag tag-decline">-{fmtPct(r.declineRate)}</span>}</>;
+                                      break;
+                                  case 'price': 
+                                      const priceDrop = (r.priceINR - targetPriceINR) / targetPriceINR * 100;
+                                      content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.priceINR} /></>;
+                                      break;
+                                  case 'txAmount':
+                                      content = <>{fmt(toPrimary(r.txAmountINR))}<FxHint inr={r.txAmountINR} /></>;
+                                      break;
+                                  case 'txUnits':
+                                      content = r.txUnits.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                                      break;
+                                  case 'avgCost':
+                                      const avgDrop = (r.avgCostINR - targetPriceINR) / targetPriceINR * 100;
+                                      content = <>{fmt(toPrimary(r.avgCostINR))}<span className="pct-hint">{avgDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.avgCostINR} /></>;
+                                      break;
+                                  case 'totalCapital':
+                                      content = <>{fmt(toPrimary(r.totalCapitalINR))}<FxHint inr={r.totalCapitalINR} /></>;
+                                      break;
+                                  case 'pnlCurrent':
+                                      const pctC = r.pnlCurrentINR / r.totalCapitalINR * 100;
+                                      content = <span className={r.pnlCurrentINR >= 0 ? 'profit-pos' : 'profit-neg'}>{fmt(toPrimary(r.pnlCurrentINR))}<span className="pct-hint">{pctC >= 0 ? '+' : ''}{pctC.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span><FxHint inr={r.pnlCurrentINR} /></span>;
+                                      break;
+                                  case 'pnlPrev':
+                                      if (r.pnlPrevINR === null) content = '—';
+                                      else {
+                                          const pctP = r.pnlPrevINR / r.totalCapitalINR * 100;
+                                          content = <span className={r.pnlPrevINR >= 0 ? 'profit-pos' : 'profit-neg'}>{fmt(toPrimary(r.pnlPrevINR))}<span className="pct-hint">{pctP >= 0 ? '+' : ''}{pctP.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span><FxHint inr={r.pnlPrevINR} /></span>;
+                                      }
+                                      break;
+                                  case 'profit':
+                                      const pctPr = r.profitAtTargetINR / r.totalCapitalINR * 100;
+                                      content = <span className={r.profitAtTargetINR >= 0 ? 'profit-pos' : 'profit-neg'}>{fmt(toPrimary(r.profitAtTargetINR))}<span className="pct-hint">{pctPr >= 0 ? '+' : ''}{pctPr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span><FxHint inr={r.profitAtTargetINR} /></span>;
+                                      break;
+                              }
+                              return <td key={c.key} style={cellStyle}>{content}</td>;
+                          })}
+                      </tr>
+                  ))}
               </tbody>
-            </table>
-          </div>
+          </table>
         </div>
-      )}
-    </>
+      </div>
+      {/* Click outside to close col panel logic is global in simple HTML, here we can use backdrop or simple onMouseLeave or just toggle */}
+      {isColPanelOpen && <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, zIndex:99}} onClick={() => setIsColPanelOpen(false)}></div>}
+    </div>
   );
 }
