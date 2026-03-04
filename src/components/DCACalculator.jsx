@@ -3,11 +3,10 @@ import './DCACalculator.css';
 
 const DEFAULT_COLS = [
   { key: 'txNum',        label: '#',                  visible: true  },
-  { key: 'date',         label: 'Day',                visible: true  },
   { key: 'price',        label: 'Price',              visible: true,  currency: true },
+  { key: 'avgCost',      label: 'Avg Cost/Unit',      visible: true,  currency: true },
   { key: 'txAmount',     label: 'Invested This Tx',   visible: true,  currency: true },
   { key: 'txUnits',      label: 'Units This Tx',      visible: true  },
-  { key: 'avgCost',      label: 'Avg Cost/Unit',      visible: true,  currency: true },
   { key: 'totalCapital', label: 'Total Invested',     visible: true,  currency: true },
   { key: 'pnlCurrent',   label: 'P&L at Current',    visible: true,  currency: true },
   { key: 'pnlPrev',      label: 'P&L at Prev Stage', visible: true,  currency: true },
@@ -24,8 +23,6 @@ export default function DCACalculator() {
   const [initialDecline, setInitialDecline] = useState(() => localStorage.getItem('dca_initialDecline') || '5');
   const [divisor, setDivisor] = useState(() => localStorage.getItem('dca_divisor') || '2');
   const [declineBasis, setDeclineBasis] = useState(() => localStorage.getItem('dca_declineBasis') || 'relative');
-  const [gapDays, setGapDays] = useState(() => localStorage.getItem('dca_gapDays') || '10');
-  const [startDate, setStartDate] = useState(() => localStorage.getItem('dca_startDate') || new Date().toISOString().split('T')[0]);
   const [targetPrice, setTargetPrice] = useState(() => localStorage.getItem('dca_targetPrice') || '100');
   const [rateUSD, setRateUSD] = useState(() => localStorage.getItem('dca_rateUSD') || '83.5');
   const [rateAED, setRateAED] = useState(() => localStorage.getItem('dca_rateAED') || '22.7');
@@ -37,7 +34,9 @@ export default function DCACalculator() {
     const saved = localStorage.getItem('dca_cols');
     if (saved) {
       const parsed = JSON.parse(saved);
-      const savedMap = Object.fromEntries(parsed.map((c, i) => [c.key, { visible: c.visible, order: i }]));
+      // Filter out any saved 'date' column just in case
+      const validParsed = parsed.filter(c => c.key !== 'date');
+      const savedMap = Object.fromEntries(validParsed.map((c, i) => [c.key, { visible: c.visible, order: i }]));
       const newCols = [...DEFAULT_COLS];
       newCols.sort((a, b) => (savedMap[a.key]?.order ?? 999) - (savedMap[b.key]?.order ?? 999));
       newCols.forEach(c => { if (c.key in savedMap) c.visible = savedMap[c.key].visible; });
@@ -57,8 +56,6 @@ export default function DCACalculator() {
   useEffect(() => localStorage.setItem('dca_initialDecline', initialDecline), [initialDecline]);
   useEffect(() => localStorage.setItem('dca_divisor', divisor), [divisor]);
   useEffect(() => localStorage.setItem('dca_declineBasis', declineBasis), [declineBasis]);
-  useEffect(() => localStorage.setItem('dca_gapDays', gapDays), [gapDays]);
-  useEffect(() => localStorage.setItem('dca_startDate', startDate), [startDate]);
   useEffect(() => localStorage.setItem('dca_targetPrice', targetPrice), [targetPrice]);
   useEffect(() => localStorage.setItem('dca_rateUSD', rateUSD), [rateUSD]);
   useEffect(() => localStorage.setItem('dca_rateAED', rateAED), [rateAED]);
@@ -103,11 +100,9 @@ export default function DCACalculator() {
     const totalBudgetINR = fromPrimary(parseNum(totalInvestment));
     const initialAmtINR = fromPrimary(parseNum(initialInvestAmt));
     const txChgPctVal = parseNum(txChangePct);
-    const gapDaysVal = parseInt(gapDays) || 1;
     const initialDeclineVal = parseNum(initialDecline);
     const divisorVal = parseNum(divisor) || 1;
     const targetPriceINR = fromPrimary(parseNum(targetPrice));
-    const startDateObj = new Date(startDate);
 
     // Build Tx Amounts
     const txMultiplier = 1 + txChgPctVal / 100;
@@ -139,7 +134,6 @@ export default function DCACalculator() {
       const avgCostINR = totalCapitalINR / totalUnits;
       rows.push({
         txNum: 1, isStartBuy: true,
-        date: startDateObj.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         priceINR: startPriceINR,
         txAmountINR: initialAmtINR,
         txUnits: units,
@@ -165,9 +159,6 @@ export default function DCACalculator() {
       }
       currentDecline = currentDecline / divisorVal;
 
-      const d = new Date(startDateObj);
-      d.setDate(d.getDate() + i * gapDaysVal);
-
       const investedINR = txAmountsINR[i];
       const units = investedINR / currentPriceINR;
       totalUnits += units;
@@ -179,7 +170,6 @@ export default function DCACalculator() {
 
       rows.push({
         txNum: i + 1 + (buyAtStart ? 1 : 0),
-        date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         priceINR: currentPriceINR,
         txAmountINR: investedINR,
         txUnits: units,
@@ -210,10 +200,9 @@ export default function DCACalculator() {
 
     return { rows, txAmountsPreview, declinePreviews, targetPriceINR, startPriceINR };
   }, [
-    startPrice, totalInvestment, initialInvestAmt, txChangePct, gapDays,
-    startDate, targetPrice, rateUSD, rateAED, buyAtStart, declineBasis,
-    divisor, initialDecline, primaryCurrency // primaryCurrency affects parsing if values weren't updated? No, state holds raw strings which might be in primary.
-    // Wait, parseNum assumes the state string is in primary currency. fromPrimary converts it. Correct.
+    startPrice, totalInvestment, initialInvestAmt, txChangePct,
+    targetPrice, rateUSD, rateAED, buyAtStart, declineBasis,
+    divisor, initialDecline, primaryCurrency
   ]);
 
   const { rows, txAmountsPreview, declinePreviews, targetPriceINR } = calculation;
@@ -264,8 +253,6 @@ export default function DCACalculator() {
       `Initial Decline: ${initialDecline}%`,
       `Divisor: ${divisor}`,
       `Decline Basis: ${declineBasis}`,
-      `Gap: ${gapDays} days`,
-      `Start Date: ${startDate}`,
       `Buy at Start: ${buyAtStart}`,
       `₹/USD: ${rateUSD} | ₹/AED: ${rateAED}`,
     ].join(' | ');
@@ -288,7 +275,6 @@ export default function DCACalculator() {
         return visibleCols.map(c => {
             switch (c.key) {
                 case 'txNum': return r.txNum;
-                case 'date': return r.date + (r.declineRate ? ` -${r.declineRate.toFixed(2)}%` : '');
                 case 'price': return fmtCell(r.priceINR);
                 case 'txAmount': return fmtCell(r.txAmountINR);
                 case 'txUnits': return r.txUnits.toFixed(4);
@@ -304,7 +290,6 @@ export default function DCACalculator() {
 
     const text = `DCA Simulation\n${params}\n\n${headers.join('\t')}\n${tableRows}`;
     navigator.clipboard.writeText(text);
-    // Visual feedback handled by button text change logic in JSX if wanted, or just simple alert
   };
 
   // ── Render Helpers ──
@@ -361,9 +346,6 @@ export default function DCACalculator() {
                 <label>Total Budget (<span className="cur-sym">{curSym()}</span>)</label>
                 <input type="text" value={totalInvestment} 
                        onChange={e => {
-                           // Simple formatting for display? Or allow raw?
-                           // Keeping it simple: allow raw typing, format on blur or just let it be. 
-                           // The original had formatBudget. 
                            setTotalInvestment(e.target.value);
                        }}
                        onBlur={e => {
@@ -417,14 +399,6 @@ export default function DCACalculator() {
 
             <div className="sec-divider"></div>
 
-            <div className="input-cell">
-                <label>Gap (days)</label>
-                <input type="number" value={gapDays} min="1" onChange={e => setGapDays(e.target.value)} />
-            </div>
-            <div className="input-cell">
-                <label>Start Date</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            </div>
             <div className="input-cell">
                 <label style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
                     Target Price (<span className="cur-sym">{curSym()}</span>)
@@ -496,7 +470,7 @@ export default function DCACalculator() {
                           if (c.key === 'profit') lbl = `Profit @ ${fmt(toPrimary(targetPriceINR), 0)}`;
                           else if (c.currency) lbl = `${c.label} (${curSym()})`;
                           
-                          return <th key={c.key} style={c.key === 'date' ? {textAlign:'left'} : {textAlign:'right'}}>{lbl}</th>;
+                          return <th key={c.key} style={{textAlign:'right'}}>{lbl}</th>;
                       })}
                   </tr>
               </thead>
@@ -504,13 +478,9 @@ export default function DCACalculator() {
                   {rows.map(r => (
                       <tr key={r.txNum}>
                           {cols.filter(c => c.visible).map(c => {
-                              const cellStyle = c.key === 'date' ? {textAlign:'left', fontWeight:500} : {textAlign:'right'};
                               let content = null;
                               switch(c.key) {
                                   case 'txNum': content = r.txNum; break;
-                                  case 'date': 
-                                      content = <>{r.date}{!r.isStartBuy && <span className="tag tag-decline">-{fmtPct(r.declineRate)}</span>}</>;
-                                      break;
                                   case 'price': 
                                       const priceDrop = (r.priceINR - targetPriceINR) / targetPriceINR * 100;
                                       content = <>{fmt(toPrimary(r.priceINR))}<span className="pct-hint">{priceDrop.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% from target</span><FxHint inr={r.priceINR} /></>;
@@ -544,7 +514,7 @@ export default function DCACalculator() {
                                       content = <span className={r.profitAtTargetINR >= 0 ? 'profit-pos' : 'profit-neg'}>{fmt(toPrimary(r.profitAtTargetINR))}<span className="pct-hint">{pctPr >= 0 ? '+' : ''}{pctPr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</span><FxHint inr={r.profitAtTargetINR} /></span>;
                                       break;
                               }
-                              return <td key={c.key} style={cellStyle}>{content}</td>;
+                              return <td key={c.key} style={{textAlign:'right'}}>{content}</td>;
                           })}
                       </tr>
                   ))}
