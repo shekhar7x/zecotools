@@ -1,13 +1,12 @@
-import React from 'react';
-import DcaCalculator from './DcaCalculator';
-import './index.css';
+import { useState } from 'react'
+import DCACalculator from './components/DCACalculator'
 
 function App() {
   return (
-    <div className="App">
-      <DcaCalculator />
+    <div className="app-container">
+      <DCACalculator />
     </div>
-  );
+  )
 }
 
-export default App;
+export default App
