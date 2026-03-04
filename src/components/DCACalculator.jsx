@@ -6,11 +6,10 @@ const DEFAULT_COLS = [
   { key: 'price',        label: 'Price',              visible: true,  currency: true },
   { key: 'avgCost',      label: 'Avg Cost/Unit',      visible: true,  currency: true },
   { key: 'txAmount',     label: 'Invested This Tx',   visible: true,  currency: true },
-  { key: 'txUnits',      label: 'Units This Tx',      visible: true  },
   { key: 'totalCapital', label: 'Total Invested',     visible: true,  currency: true },
+  { key: 'profit',       label: 'Profit @ Target',    visible: true,  currency: true },
   { key: 'pnlCurrent',   label: 'P&L at Current',    visible: true,  currency: true },
   { key: 'pnlPrev',      label: 'P&L at Prev Stage', visible: true,  currency: true },
-  { key: 'profit',       label: 'Profit @ Target',    visible: true,  currency: true },
 ];
 
 export default function DCACalculator() {
@@ -46,6 +45,7 @@ export default function DCACalculator() {
   });
   const [isColPanelOpen, setIsColPanelOpen] = useState(false);
   const [dragSrc, setDragSrc] = useState(null);
+  const [copyLabel, setCopyLabel] = useState('⎘');
 
   // ── Persistence ──
   useEffect(() => localStorage.setItem('dca_primaryCurrency', primaryCurrency), [primaryCurrency]);
@@ -238,7 +238,7 @@ export default function DCACalculator() {
     setCols(newCols);
   };
 
-  const copyForAI = (btn) => {
+  const copyForAI = () => {
     const sym = curSym();
     const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
     const visibleCols = cols.filter(c => c.visible);
@@ -258,7 +258,7 @@ export default function DCACalculator() {
     ].join(' | ');
 
     const headers = visibleCols.map(c => {
-      if (c.key === 'profit') return `Profit@${sym}${toPrimary(targetPriceINR).toFixed(0)}` + (fxEnabled ? others.map(x => `+${curSym(x)}`).join('') : '');
+      if (c.key === 'profit') return `Profit @ Target` + (fxEnabled ? others.map(x => `+${curSym(x)}`).join('') : '');
       if (c.currency && fxEnabled) return `${c.label}(${sym})` + others.map(x => `+${curSym(x)}`).join('');
       if (c.currency) return `${c.label}(${sym})`;
       return c.label;
@@ -277,7 +277,6 @@ export default function DCACalculator() {
                 case 'txNum': return r.txNum;
                 case 'price': return fmtCell(r.priceINR);
                 case 'txAmount': return fmtCell(r.txAmountINR);
-                case 'txUnits': return r.txUnits.toFixed(4);
                 case 'avgCost': return fmtCell(r.avgCostINR);
                 case 'totalCapital': return fmtCell(r.totalCapitalINR);
                 case 'pnlCurrent': return fmtCell(r.pnlCurrentINR) + ` (${(r.pnlCurrentINR/r.totalCapitalINR*100).toFixed(2)}%)`;
@@ -289,7 +288,10 @@ export default function DCACalculator() {
     }).join('\n');
 
     const text = `DCA Simulation\n${params}\n\n${headers.join('\t')}\n${tableRows}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).then(() => {
+        setCopyLabel('✓');
+        setTimeout(() => setCopyLabel('⎘'), 1500);
+    });
   };
 
   // ── Render Helpers ──
@@ -438,7 +440,7 @@ export default function DCACalculator() {
                 <input type="checkbox" checked={fxEnabled} onChange={e => setFxEnabled(e.target.checked)} style={{width:'12px', height:'12px', accentColor:'#b07d00'}} />
                 <span style={{fontSize:'9px'}}>Show FX</span>
               </label>
-              <button className="col-btn" onClick={e => copyForAI(e.target)} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>⎘</button>
+              <button className="col-btn" onClick={copyForAI} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>{copyLabel}</button>
               <div style={{position:'relative'}}>
                 <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)}>⚙ Columns</button>
                 <div className={`col-panel ${isColPanelOpen ? 'open' : ''}`} id="colPanel">
@@ -467,7 +469,7 @@ export default function DCACalculator() {
                   <tr>
                       {cols.filter(c => c.visible).map(c => {
                           let lbl = c.label;
-                          if (c.key === 'profit') lbl = `Profit @ ${fmt(toPrimary(targetPriceINR), 0)}`;
+                          if (c.key === 'profit') lbl = `Profit @ Target`;
                           else if (c.currency) lbl = `${c.label} (${curSym()})`;
                           
                           return <th key={c.key} style={{textAlign:'right'}}>{lbl}</th>;
@@ -487,9 +489,6 @@ export default function DCACalculator() {
                                       break;
                                   case 'txAmount':
                                       content = <>{fmt(toPrimary(r.txAmountINR))}<FxHint inr={r.txAmountINR} /></>;
-                                      break;
-                                  case 'txUnits':
-                                      content = r.txUnits.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
                                       break;
                                   case 'avgCost':
                                       const avgDrop = (r.avgCostINR - targetPriceINR) / targetPriceINR * 100;
