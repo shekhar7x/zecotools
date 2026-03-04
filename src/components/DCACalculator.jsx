@@ -20,7 +20,7 @@ export default function DCACalculator() {
   const [initialInvestAmt, setInitialInvestAmt] = useState(() => localStorage.getItem('dca_initialInvestAmt') || '10000');
   const [txChangePct, setTxChangePct] = useState(() => localStorage.getItem('dca_txChangePct') || '50');
   const [initialDecline, setInitialDecline] = useState(() => localStorage.getItem('dca_initialDecline') || '5');
-  const [divisor, setDivisor] = useState(() => localStorage.getItem('dca_divisor') || '2');
+  const [divisor, setDivisor] = useState(() => localStorage.getItem('dca_divisor') || '0.8');
   const [declineBasis, setDeclineBasis] = useState(() => localStorage.getItem('dca_declineBasis') || 'relative');
   const [targetPrice, setTargetPrice] = useState(() => localStorage.getItem('dca_targetPrice') || '100');
   const [rateUSD, setRateUSD] = useState(() => localStorage.getItem('dca_rateUSD') || '83.5');
@@ -499,9 +499,8 @@ export default function DCACalculator() {
                                       break;
                                   case 'totalCapital':
                                       const isLastRowCap = r.txNum === rows[rows.length - 1].txNum;
-                                      const prevRowCap = rows.length > 1 && isLastRowCap ? rows[rows.length - 2] : null;
-                                      const adjustmentCap = prevRowCap !== null ? toPrimary(r.totalCapitalINR - prevRowCap.totalCapitalINR) : null;
-                                      content = <>{fmt(toPrimary(r.totalCapitalINR))}{adjustmentCap !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>-{curSym()}{adjustmentCap.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} adjusted</span>}<FxHint inr={r.totalCapitalINR} /></>;
+                                      const adjustmentCap = isLastRowCap ? toPrimary(r.txAmountINR) : null;
+                                      content = <>{fmt(toPrimary(r.totalCapitalINR))}{adjustmentCap !== null && <span style={{color: '#dc2626', fontSize: '10px', display: 'block', marginTop: '2px'}}>+{curSym()}{adjustmentCap.toLocaleString(curLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2})} adjusted</span>}<FxHint inr={r.totalCapitalINR} /></>;
                                       break;
                                   case 'pnlCurrent':
                                       const pctC = r.pnlCurrentINR / r.totalCapitalINR * 100;
