@@ -46,6 +46,7 @@ export default function DCACalculator() {
   });
   const [isColPanelOpen, setIsColPanelOpen] = useState(false);
   const [dragSrc, setDragSrc] = useState(null);
+  const [copyLabel, setCopyLabel] = useState('⎘');
 
   // ── Persistence ──
   useEffect(() => localStorage.setItem('dca_primaryCurrency', primaryCurrency), [primaryCurrency]);
@@ -238,7 +239,7 @@ export default function DCACalculator() {
     setCols(newCols);
   };
 
-  const copyForAI = (btn) => {
+  const copyForAI = () => {
     const sym = curSym();
     const others = ['INR','USD','AED'].filter(c => c !== primaryCurrency);
     const visibleCols = cols.filter(c => c.visible);
@@ -289,7 +290,10 @@ export default function DCACalculator() {
     }).join('\n');
 
     const text = `DCA Simulation\n${params}\n\n${headers.join('\t')}\n${tableRows}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).then(() => {
+        setCopyLabel('✓');
+        setTimeout(() => setCopyLabel('⎘'), 1500);
+    });
   };
 
   // ── Render Helpers ──
@@ -438,7 +442,7 @@ export default function DCACalculator() {
                 <input type="checkbox" checked={fxEnabled} onChange={e => setFxEnabled(e.target.checked)} style={{width:'12px', height:'12px', accentColor:'#b07d00'}} />
                 <span style={{fontSize:'9px'}}>Show FX</span>
               </label>
-              <button className="col-btn" onClick={e => copyForAI(e.target)} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>⎘</button>
+              <button className="col-btn" onClick={copyForAI} title="Copy all data for AI" style={{fontSize:'13px', padding:'4px 7px'}}>{copyLabel}</button>
               <div style={{position:'relative'}}>
                 <button className="col-btn" onClick={() => setIsColPanelOpen(!isColPanelOpen)}>⚙ Columns</button>
                 <div className={`col-panel ${isColPanelOpen ? 'open' : ''}`} id="colPanel">
