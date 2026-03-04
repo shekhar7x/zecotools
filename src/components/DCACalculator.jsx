@@ -376,7 +376,7 @@ export default function DCACalculator() {
             <div className="sec-divider"></div>
 
             <div className="input-cell">
-                <label>Initial Decline (%)</label>https://github.com/shekhar7x/zecotools.git
+                <label>Initial Decline (%)</label>
                 <input type="number" value={initialDecline} min="0" step="1" onChange={e => setInitialDecline(e.target.value)} />
             </div>
             <div className="input-cell">
