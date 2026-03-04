@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './DCACalculator.css';
+import ProfileManager from './ProfileManager';
+import NumberInputWithSteps from './NumberInputWithSteps';
 
 const DEFAULT_COLS = [
   { key: 'txNum',        label: '#',                  visible: true  },
@@ -294,6 +296,38 @@ export default function DCACalculator() {
     });
   };
 
+  const handleLoadProfile = (data) => {
+    setPrimaryCurrency(data.primaryCurrency);
+    setStartPrice(data.startPrice);
+    setTotalInvestment(data.totalInvestment);
+    setInitialInvestAmt(data.initialInvestAmt);
+    setTxChangePct(data.txChangePct);
+    setInitialDecline(data.initialDecline);
+    setDivisor(data.divisor);
+    setDeclineBasis(data.declineBasis);
+    setTargetPrice(data.targetPrice);
+    setRateUSD(data.rateUSD);
+    setRateAED(data.rateAED);
+    setBuyAtStart(data.buyAtStart);
+    setFxEnabled(data.fxEnabled);
+  };
+
+  const getCurrentData = () => ({
+    primaryCurrency,
+    startPrice,
+    totalInvestment,
+    initialInvestAmt,
+    txChangePct,
+    initialDecline,
+    divisor,
+    declineBasis,
+    targetPrice,
+    rateUSD,
+    rateAED,
+    buyAtStart,
+    fxEnabled
+  });
+
   // ── Render Helpers ──
   const FxHint = ({ inr }) => {
     if (!fxEnabled) return null;
@@ -328,7 +362,8 @@ export default function DCACalculator() {
       <div className="top-bar">
         <div className="top-bar-title">
           DCA — Decline & Invest Calculator
-          <div style={{display:'flex', gap:'4px'}}>
+          <div style={{display:'flex', gap:'6px', alignItems:'center'}}>
+            <ProfileManager currentData={getCurrentData()} onLoadProfile={handleLoadProfile} />
             {['INR','USD','AED'].map(c => (
               <button key={c}
                 className={`cur-btn ${primaryCurrency === c ? 'active' : ''}`}
@@ -341,19 +376,21 @@ export default function DCACalculator() {
         <div className="inputs-row">
             <div className="input-cell">
                 <label>Start Price (<span className="cur-sym">{curSym()}</span>)</label>
-                <input type="number" value={startPrice} min="0" step="1" onChange={e => setStartPrice(e.target.value)} />
+                <NumberInputWithSteps
+                    value={startPrice}
+                    onChange={setStartPrice}
+                    step={primaryCurrency === 'INR' ? 50 : 0.5}
+                    locale={curLocale()}
+                />
                 <RateHints valStr={startPrice} />
             </div>
             <div className="input-cell" style={{flexBasis:'150px', maxWidth:'200px'}}>
                 <label>Total Budget (<span className="cur-sym">{curSym()}</span>)</label>
-                <input type="text" value={totalInvestment} 
-                       onChange={e => {
-                           setTotalInvestment(e.target.value);
-                       }}
-                       onBlur={e => {
-                           const raw = e.target.value.replace(/,/g, '');
-                           if(raw && !isNaN(raw)) setTotalInvestment(Number(raw).toLocaleString(curLocale()));
-                       }}
+                <NumberInputWithSteps
+                    value={totalInvestment}
+                    onChange={setTotalInvestment}
+                    step={primaryCurrency === 'INR' ? 50000 : 500}
+                    locale={curLocale()}
                 />
                 <RateHints valStr={totalInvestment} />
             </div>
@@ -362,7 +399,12 @@ export default function DCACalculator() {
 
             <div className="input-cell" style={{flexBasis:'150px', maxWidth:'200px'}}>
                 <label>Initial Invest (<span className="cur-sym">{curSym()}</span>)</label>
-                <input type="number" value={initialInvestAmt} min="0" step={primaryCurrency === 'INR' ? 500 : 10} onChange={e => setInitialInvestAmt(e.target.value)} />
+                <NumberInputWithSteps
+                    value={initialInvestAmt}
+                    onChange={setInitialInvestAmt}
+                    step={primaryCurrency === 'INR' ? 5000 : 100}
+                    locale={curLocale()}
+                />
                 <div className="input-hint">
                     {fmt(parseNum(initialInvestAmt), 0)} · {((parseNum(initialInvestAmt)/parseNum(totalInvestment))*100 || 0).toFixed(1)}% of budget
                 </div>
@@ -406,7 +448,12 @@ export default function DCACalculator() {
                     Target Price (<span className="cur-sym">{curSym()}</span>)
                     <button onClick={() => setTargetPrice(startPrice)} title="Set to start price" style={{fontSize:'11px', padding:'0 3px', border:'none', background:'none', color:'#bbb', cursor:'pointer', lineHeight:1}}>↻</button>
                 </label>
-                <input type="number" value={targetPrice} min="0" step="1" onChange={e => setTargetPrice(e.target.value)} />
+                <NumberInputWithSteps
+                    value={targetPrice}
+                    onChange={setTargetPrice}
+                    step={primaryCurrency === 'INR' ? 50 : 0.5}
+                    locale={curLocale()}
+                />
                 <RateHints valStr={targetPrice} />
             </div>
 
