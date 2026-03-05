@@ -29,6 +29,8 @@ export default function DCACalculator() {
   const [rateAED, setRateAED] = useState(() => localStorage.getItem('dca_rateAED') || '22.7');
   const [buyAtStart, setBuyAtStart] = useState(() => localStorage.getItem('dca_buyAtStart') === 'true');
   const [fxEnabled, setFxEnabled] = useState(() => localStorage.getItem('dca_fxEnabled') === 'true');
+  const [customDeclineInput, setCustomDeclineInput] = useState(() => localStorage.getItem('dca_customDeclineInput') || '');
+  const [useCustomDecline, setUseCustomDecline] = useState(() => localStorage.getItem('dca_useCustomDecline') === 'true');
 
   // ── State: UI ──
   const [cols, setCols] = useState(() => {
@@ -64,6 +66,8 @@ export default function DCACalculator() {
   useEffect(() => localStorage.setItem('dca_buyAtStart', buyAtStart), [buyAtStart]);
   useEffect(() => localStorage.setItem('dca_fxEnabled', fxEnabled), [fxEnabled]);
   useEffect(() => localStorage.setItem('dca_cols', JSON.stringify(cols.map(c => ({ key: c.key, visible: c.visible })))), [cols]);
+  useEffect(() => localStorage.setItem('dca_customDeclineInput', customDeclineInput), [customDeclineInput]);
+  useEffect(() => localStorage.setItem('dca_useCustomDecline', useCustomDecline), [useCustomDecline]);
 
   // ── Helpers ──
   const getRateUSD = () => parseFloat(rateUSD) || 1;
@@ -153,13 +157,25 @@ export default function DCACalculator() {
     const totalSteps = txAmountsINR.length;
 
     for (let i = loopStart; i < totalSteps; i++) {
-      const declineUsed = currentDecline;
-      if (declineBasis === 'start') {
-        currentPriceINR = currentPriceINR - startPriceINR * currentDecline / 100;
+      // Use custom decline if enabled, otherwise use formula
+      let declineUsed;
+      if (useCustomDecline && customDeclineInput) {
+        const customDeclines = customDeclineInput.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+        const idx = i - loopStart;
+        declineUsed = idx < customDeclines.length ? customDeclines[idx] : (customDeclines.length > 0 ? customDeclines[customDeclines.length - 1] : initialDeclineVal);
       } else {
-        currentPriceINR = currentPriceINR * (1 - currentDecline / 100);
+        declineUsed = currentDecline;
       }
-      currentDecline = currentDecline / divisorVal;
+
+      if (declineBasis === 'start') {
+        currentPriceINR = currentPriceINR - startPriceINR * declineUsed / 100;
+      } else {
+        currentPriceINR = currentPriceINR * (1 - declineUsed / 100);
+      }
+
+      if (!useCustomDecline) {
+        currentDecline = currentDecline / divisorVal;
+      }
 
       const investedINR = txAmountsINR[i];
       const units = investedINR / currentPriceINR;
@@ -204,7 +220,7 @@ export default function DCACalculator() {
   }, [
     startPrice, totalInvestment, initialInvestAmt, txChangePct,
     targetPrice, rateUSD, rateAED, buyAtStart, declineBasis,
-    divisor, initialDecline, primaryCurrency
+    divisor, initialDecline, primaryCurrency, useCustomDecline, customDeclineInput
   ]);
 
   const { rows, txAmountsPreview, declinePreviews, targetPriceINR } = calculation;
@@ -310,6 +326,8 @@ export default function DCACalculator() {
     setRateAED(data.rateAED);
     setBuyAtStart(data.buyAtStart);
     setFxEnabled(data.fxEnabled);
+    if (data.customDeclineInput !== undefined) setCustomDeclineInput(data.customDeclineInput);
+    if (data.useCustomDecline !== undefined) setUseCustomDecline(data.useCustomDecline);
   };
 
   const getCurrentData = () => ({
@@ -325,7 +343,9 @@ export default function DCACalculator() {
     rateUSD,
     rateAED,
     buyAtStart,
-    fxEnabled
+    fxEnabled,
+    customDeclineInput,
+    useCustomDecline
   });
 
   // ── Render Helpers ──
@@ -417,14 +437,39 @@ export default function DCACalculator() {
 
             <div className="sec-divider"></div>
 
-            <div className="input-cell">
-                <label>Initial Decline (%)</label>
-                <input type="number" value={initialDecline} min="0" step="1" onChange={e => setInitialDecline(e.target.value)} />
-            </div>
-            <div className="input-cell">
-                <label>Divisor</label>
-                <input type="number" value={divisor} min="0" step="0.1" onChange={e => setDivisor(e.target.value)} />
-                <div className="input-hint">halves each step</div>
+            <div className="input-cell" style={{flexBasis:'180px', maxWidth:'220px'}}>
+                <label style={{display:'flex', alignItems:'center', gap:'6px'}}>
+                    <input
+                        type="checkbox"
+                        checked={useCustomDecline}
+                        onChange={e => setUseCustomDecline(e.target.checked)}
+                        style={{width:'13px', height:'13px', accentColor:'#4f46e5'}}
+                    />
+                    <span style={{fontSize:'12px', fontWeight:600, color:'#888'}}>Custom Decline Rates</span>
+                </label>
+                {useCustomDecline ? (
+                    <input
+                        type="text"
+                        placeholder="e.g., 5, 15, 18, 19, 67"
+                        value={customDeclineInput}
+                        onChange={e => setCustomDeclineInput(e.target.value)}
+                        style={{fontFamily:'monospace', fontSize:'12px'}}
+                    />
+                ) : (
+                    <>
+                        <div style={{display:'flex', gap:'6px'}}>
+                            <div style={{flex:1}}>
+                                <label style={{fontSize:'10px', color:'#999'}}>Initial %</label>
+                                <input type="number" value={initialDecline} min="0" step="1" onChange={e => setInitialDecline(e.target.value)} />
+                            </div>
+                            <div style={{flex:1}}>
+                                <label style={{fontSize:'10px', color:'#999'}}>Divisor</label>
+                                <input type="number" value={divisor} min="0" step="0.1" onChange={e => setDivisor(e.target.value)} />
+                            </div>
+                        </div>
+                        <div className="input-hint">halves each step</div>
+                    </>
+                )}
             </div>
             <div className="input-cell" style={{flexBasis:'130px', maxWidth:'160px'}}>
                 <label>Decline Basis</label>
